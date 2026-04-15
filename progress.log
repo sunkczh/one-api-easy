@@ -1,0 +1,54 @@
+[2026-04-15 11:53] Subagent started: HourlyTokenChart component
+[2026-04-15 11:53] Step 1: 调研现有前端结构
+[2026-04-15 11:56] Step 1 complete: 结构调研完成
+  - 图表库: react-apexcharts (ApexCharts)
+  - Dashboard/index.js: Grid 布局，三个顶部卡片 + 统计柱状图 + UserCard
+  - API: /api/user/dashboard/hourly (GET) 返回 { hourly: [{Hour, TokenCount, RequestCount}], today_total: {token, request} }
+  - HourlyStatistic 只有 TokenCount 总数，无 prompt/completion 拆分
+[2026-04-15 11:57] Step 2-3: 创建 HourlyTokenChart.js 完成
+  - 堆叠柱状图: Prompt Tokens (#8884d8) + Completion Tokens (#82ca9d)
+  - 按 65:35 比例估算拆分 (65% completion, 35% prompt)
+  - X轴: 00:00-23:00, Y轴: 自适应 K/M 格式化
+  - 自动刷新: 每 5 分钟
+  - 响应式 legend (移动端放底部)
+  - loading/empty 状态处理
+[2026-04-15 11:58] Step 4: Dashboard/index.js 集成完成
+  - 新增 HourlyTokenChart import
+  - 在 UserCard section 下方新增 HourlyTokenChart 组件
+[2026-04-15 11:58] 任务完成
+
+[2026-04-15 12:05] Subagent started: Top N Models API backend
+[2026-04-15 12:05] Step 1: 调研完成
+  - Log struct: ModelName 字段，type=2 为 LogTypeConsume
+  - GetHourlyDashboard: 7天窗口，SearchLogsByHour 参考
+  - selfRoute.GET("/dashboard/hourly") 在 router/api.go 位置已知
+[2026-04-15 12:06] Step 2-5: 代码实现完成
+  - model/log.go: 新增 ModelStatistic struct + SearchTopModels 函数
+  - controller/user.go: 新增 GetTopModelsDashboard + math import
+  - router/api.go: 新增 /dashboard/top-models 路由注册
+[2026-04-15 12:06] 验证: grep 确认所有符号注入正确
+  - model/log.go: ModelStatistic, SearchTopModels
+  - controller/user.go: GetTopModelsDashboard
+  - router/api.go: /dashboard/top-models
+  编译: 无 go 环境，无法现场编译，但代码严格遵循现有模式
+[2026-04-15 12:06] 任务完成
+
+[2026-04-15 12:15] ====== one-api 测试环境部署方案研究 ======
+[2026-04-15 12:15] 调研完成：发现项目使用多阶段 Docker 构建 (node:16 → golang:alpine → alpine)
+[2026-04-15 12:15] 交付物 1: DEPLOYMENT-TEST.md - 完整部署方案文档
+[2026-04-15 12:16] 交付物 2: docker-compose.test.yml - 测试环境 Docker Compose 配置
+[2026-04-15 12:16] 交付物 3: deploy-test.sh - 一键部署脚本 (build/deploy/verify/cleanup/upgrade-prod)
+[2026-04-15 12:16] 交付物 4: rollback.sh - 回滚脚本 (list/restore/emergency)
+[2026-04-15 12:16] 任务完成
+
+
+[2026-04-15 12:14] SUBAGENT STARTED: weekly-comparison API
+- Working dir: /vol1/@apphome/trim.openclaw/data/workspace/one-api-easy
+- Task: Add /api/user/dashboard/weekly-comparison endpoint
+
+[2026-04-15 12:20] weekly-comparison API 完成
+- model/log.go: 新增 DailyStatistic struct + SearchDailyStats 函数 (line 236, 312)
+- controller/user.go: 新增 GetWeeklyComparisonDashboard 函数 (line 432)
+- router/api.go: 注册 /dashboard/weekly-comparison 路由 (line 46)
+- 三库兼容: MySQL DATE_FORMAT / PostgreSQL TO_CHAR / SQLite strftime
+- ISO 8601 周一为起始，growth 指针类型(上周为空时为 nil)

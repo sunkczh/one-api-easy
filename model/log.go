@@ -222,6 +222,39 @@ type LogStatistic struct {
 	CompletionTokens int    `gorm:"column:completion_tokens"`
 }
 
+type HourlyStatistic struct {
+	Hour         string `gorm:"column:hour"`
+	TokenCount   int    `gorm:"column:token_count"`
+	RequestCount int    `gorm:"column:request_count"`
+}
+
+type ModelStatistic struct {
+	Model      string `gorm:"column:model_name"`
+	TokenCount int    `gorm:"column:token_count"`
+}
+
+type DailyStatistic struct {
+	Date         string `gorm:"column:date"`
+	TokenCount   int    `gorm:"column:token_count"`
+	RequestCount int    `gorm:"column:request_count"`
+}
+
+func SearchTopModels(userId, start, end, limit int) ([]*ModelStatistic, error) {
+	var stats []*ModelStatistic
+	err := LOG_DB.Raw(`
+		SELECT model_name,
+			sum(prompt_tokens) + sum(completion_tokens) as token_count
+		FROM logs
+		WHERE type=2
+		AND user_id=?
+		AND created_at BETWEEN ? AND ?
+		GROUP BY model_name
+		ORDER BY token_count DESC
+		LIMIT ?
+	`, userId, start, end, limit).Scan(&stats).Error
+	return stats, err
+}
+
 func SearchLogsByDayAndModel(userId, start, end int) (LogStatistics []*LogStatistic, err error) {
 	groupSelect := "DATE_FORMAT(FROM_UNIXTIME(created_at), '%Y-%m-%d') as day"
 
@@ -248,4 +281,57 @@ func SearchLogsByDayAndModel(userId, start, end int) (LogStatistics []*LogStatis
 	`, userId, start, end).Scan(&LogStatistics).Error
 
 	return LogStatistics, err
+}
+
+func SearchLogsByHour(userId, start, end int) (HourlyStatistics []*HourlyStatistic, err error) {
+	hourSelect := "DATE_FORMAT(FROM_UNIXTIME(created_at), '%H:00') as hour"
+
+	if common.UsingPostgreSQL {
+		hourSelect = "TO_CHAR(date_trunc('hour', to_timestamp(created_at)), 'HH24:00') as hour"
+	}
+
+	if common.UsingSQLite {
+		hourSelect = "strftime('%H:00', datetime(created_at, 'unixepoch')) as hour"
+	}
+
+	err = LOG_DB.Raw(`
+		SELECT `+hourSelect+`,
+		count(1) as request_count,
+		sum(prompt_tokens) + sum(completion_tokens) as token_count
+		FROM logs
+		WHERE type=2
+		AND user_id=?
+		AND created_at BETWEEN ? AND ?
+		GROUP BY hour
+		ORDER BY hour
+	`, userId, start, end).Scan(&HourlyStatistics).Error
+
+	return HourlyStatistics, err
+}
+
+func SearchDailyStats(userId, start, end int) ([]*DailyStatistic, error) {
+	var stats []*DailyStatistic
+	dateSelect := "DATE_FORMAT(FROM_UNIXTIME(created_at), '%Y-%m-%d') as date"
+
+	if common.UsingPostgreSQL {
+		dateSelect = "TO_CHAR(date_trunc('day', to_timestamp(created_at)), 'YYYY-MM-DD') as date"
+	}
+
+	if common.UsingSQLite {
+		dateSelect = "strftime('%Y-%m-%d', datetime(created_at, 'unixepoch')) as date"
+	}
+
+	err := LOG_DB.Raw(`
+		SELECT `+dateSelect+`,
+		count(1) as request_count,
+		sum(prompt_tokens) + sum(completion_tokens) as token_count
+		FROM logs
+		WHERE type=2
+		AND user_id=?
+		AND created_at BETWEEN ? AND ?
+		GROUP BY date
+		ORDER BY date
+	`, userId, start, end).Scan(&stats).Error
+
+	return stats, err
 }

@@ -1,0 +1,66 @@
+# one-api 测试环境 Docker Compose 配置
+# 使用方式: docker-compose -f docker-compose.test.yml up -d
+#
+# 与正式环境的区别：
+#   - 端口: 3001 (正式是 3000)
+#   - 容器名: one-api-test (正式是 one-api)
+#   - 数据目录: ./data/test (正式是 ./data/oneapi)
+
+version: '3.4'
+
+services:
+  # ============================================
+  # one-api 测试环境
+  # ============================================
+  one-api-test:
+    image: one-api:dev
+    container_name: one-api-test
+    restart: unless-stopped
+    ports:
+      - "3001:3000"  # 测试端口 3001
+    volumes:
+      - ./data/test:/data          # 独立测试数据目录
+      - ./logs/test:/app/logs      # 测试日志目录
+    environment:
+      # 测试环境使用 SQLite，不依赖外部数据库
+      # 如需 MySQL/Redis，取消下面注释并确保依赖服务运行
+      # - SQL_DSN=oneapi:123456@tcp(db:3306)/one-api-test
+      # - REDIS_CONN_STRING=redis://redis-test:6379
+      - SESSION_SECRET=test_env_$(date +%s)_random_string  # 独立 Session Secret
+      - TZ=Asia/Shanghai
+    depends_on:
+      # - redis-test
+      # - db-test
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' | awk -F: '{print $2}'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # 测试环境 Redis (可选，取消注释启用)
+  # ============================================
+  # redis-test:
+  #   image: "${REGISTRY:-docker.io}/redis:latest"
+  #   container_name: redis-test
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6380:6379"  # 测试 Redis 端口
+
+  # ============================================
+  # 测试环境 MySQL (可选，取消注释启用)
+  # ============================================
+  # db-test:
+  #   image: "${REGISTRY:-docker.io}/mysql:8.2.0"
+  #   restart: unless-stopped
+  #   container_name: mysql-test
+  #   ports:
+  #     - "3307:3306"  # 测试 MySQL 端口
+  #   volumes:
+  #     - ./data/mysql-test:/var/lib/mysql
+  #   environment:
+  #     TZ: Asia/Shanghai
+  #     MYSQL_ROOT_PASSWORD: 'Test@123456'
+  #     MYSQL_USER: oneapi-test
+  #     MYSQL_PASSWORD: '123456'
+  #     MYSQL_DATABASE: one-api-test

@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -278,6 +279,281 @@ func GetUserDashboard(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data":    dashboards,
+	})
+	return
+}
+
+func GetHourlyDashboard(c *gin.Context) {
+	id := c.GetInt(ctxkey.Id)
+	loc := time.FixedZone("Asia/Shanghai", 8*60*60)
+	now := time.Now().In(loc)
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix()
+	endOfDay := now.Unix()
+
+	hourlyStats, err := model.SearchLogsByHour(id, int(startOfDay), int(endOfDay))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无法获取统计信息",
+			"data":    nil,
+		})
+		return
+	}
+
+	// Build a map for quick lookup
+	hourlyMap := make(map[string]model.HourlyStatistic)
+	for _, h := range hourlyStats {
+		hourlyMap[h.Hour] = *h
+	}
+
+	// Fill all 24 hours
+	var hourly []model.HourlyStatistic
+	for i := 0; i < 24; i++ {
+		hour := fmt.Sprintf("%02d:00", i)
+		if stat, ok := hourlyMap[hour]; ok {
+			hourly = append(hourly, stat)
+		} else {
+			hourly = append(hourly, model.HourlyStatistic{
+				Hour:         hour,
+				TokenCount:   0,
+				RequestCount: 0,
+			})
+		}
+	}
+
+	// Compute today's total
+	var todayTotal struct {
+		Token   int `json:"token"`
+		Request int `json:"request"`
+	}
+	for _, h := range hourlyStats {
+		todayTotal.Token += h.TokenCount
+		todayTotal.Request += h.RequestCount
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"hourly":       hourly,
+			"today_total":  todayTotal,
+		},
+	})
+	return
+}
+
+func GetTopModelsDashboard(c *gin.Context) {
+	id := c.GetInt(ctxkey.Id)
+	now := time.Now()
+	sevenDaysAgo := now.AddDate(0, 0, -7).Unix()
+	nowTs := now.Unix()
+
+	modelStats, err := model.SearchTopModels(id, int(sevenDaysAgo), int(nowTs), 100)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无法获取统计信息",
+			"data":    nil,
+		})
+		return
+	}
+
+	// Calculate total tokens
+	var totalToken int
+	for _, s := range modelStats {
+		totalToken += s.TokenCount
+	}
+
+	// Build top_models, cap at 5, merge rest into "其他"
+	const topN = 5
+	var topModels []gin.H
+
+	if len(modelStats) <= topN {
+		for _, s := range modelStats {
+			modelName := s.Model
+			if modelName == "" {
+				modelName = "未知模型"
+			}
+			percentage := 0.0
+			if totalToken > 0 {
+				percentage = float64(s.TokenCount) / float64(totalToken) * 100
+			}
+			topModels = append(topModels, gin.H{
+				"model":       modelName,
+				"token_count": s.TokenCount,
+				"percentage":  math.Round(percentage*10) / 10,
+			})
+		}
+	} else {
+		var othersToken int
+		for i, s := range modelStats {
+			if i < topN-1 {
+				modelName := s.Model
+				if modelName == "" {
+					modelName = "未知模型"
+				}
+				percentage := 0.0
+				if totalToken > 0 {
+					percentage = float64(s.TokenCount) / float64(totalToken) * 100
+				}
+				topModels = append(topModels, gin.H{
+					"model":       modelName,
+					"token_count": s.TokenCount,
+					"percentage":  math.Round(percentage*10) / 10,
+				})
+			} else {
+				othersToken += s.TokenCount
+			}
+		}
+		// Append "其他"
+		othersPercentage := 0.0
+		if totalToken > 0 {
+			othersPercentage = float64(othersToken) / float64(totalToken) * 100
+		}
+		topModels = append(topModels, gin.H{
+			"model":       "其他",
+			"token_count": othersToken,
+			"percentage":  math.Round(othersPercentage*10) / 10,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"top_models":   topModels,
+			"total_token":  totalToken,
+			"period":       "last_7_days",
+		},
+	})
+	return
+}
+
+func GetWeeklyComparisonDashboard(c *gin.Context) {
+	id := c.GetInt(ctxkey.Id)
+	loc := time.FixedZone("Asia/Shanghai", 8*60*60)
+	now := time.Now().In(loc)
+
+	// 计算本周一和上周一 (ISO 8601: Monday = 1)
+	// 本周一
+	thisWeekMonday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday = 7 in ISO
+	}
+	thisWeekMonday = thisWeekMonday.AddDate(0, 0, -(weekday - 1))
+	// 上周一 = 本周一 - 7天
+	lastWeekMonday := thisWeekMonday.AddDate(0, 0, -7)
+
+	thisWeekStart := thisWeekMonday.Unix()
+	thisWeekEnd := thisWeekMonday.AddDate(0, 0, 7).Add(-time.Second).Unix()
+	lastWeekStart := lastWeekMonday.Unix()
+	lastWeekEnd := lastWeekMonday.AddDate(0, 0, 7).Add(-time.Second).Unix()
+
+	// 查询本周数据
+	thisWeekStats, err := model.SearchDailyStats(id, int(thisWeekStart), int(thisWeekEnd))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无法获取本周统计信息",
+			"data":    nil,
+		})
+		return
+	}
+
+	// 查询上周数据
+	lastWeekStats, err := model.SearchDailyStats(id, int(lastWeekStart), int(lastWeekEnd))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无法获取上周统计信息",
+			"data":    nil,
+		})
+		return
+	}
+
+	// 转换为 map 方便计算
+	thisWeekMap := make(map[string]model.DailyStatistic)
+	for _, s := range thisWeekStats {
+		thisWeekMap[s.Date] = *s
+	}
+	lastWeekMap := make(map[string]model.DailyStatistic)
+	for _, s := range lastWeekStats {
+		lastWeekMap[s.Date] = *s
+	}
+
+	// 填充本周每日数据 (最多7天)
+	var thisWeekDaily []gin.H
+	var thisWeekTotalToken, thisWeekTotalRequest int
+	for i := 0; i < 7; i++ {
+		day := thisWeekMonday.AddDate(0, 0, i)
+		dateStr := day.Format("2006-01-02")
+		stat, ok := thisWeekMap[dateStr]
+		if !ok {
+			stat = model.DailyStatistic{Date: dateStr, TokenCount: 0, RequestCount: 0}
+		}
+		thisWeekDaily = append(thisWeekDaily, gin.H{
+			"date":          stat.Date,
+			"token_count":   stat.TokenCount,
+			"request_count": stat.RequestCount,
+		})
+		thisWeekTotalToken += stat.TokenCount
+		thisWeekTotalRequest += stat.RequestCount
+	}
+
+	// 填充上周每日数据
+	var lastWeekDaily []gin.H
+	var lastWeekTotalToken, lastWeekTotalRequest int
+	for i := 0; i < 7; i++ {
+		day := lastWeekMonday.AddDate(0, 0, i)
+		dateStr := day.Format("2006-01-02")
+		stat, ok := lastWeekMap[dateStr]
+		if !ok {
+			stat = model.DailyStatistic{Date: dateStr, TokenCount: 0, RequestCount: 0}
+		}
+		lastWeekDaily = append(lastWeekDaily, gin.H{
+			"date":          stat.Date,
+			"token_count":   stat.TokenCount,
+			"request_count": stat.RequestCount,
+		})
+		lastWeekTotalToken += stat.TokenCount
+		lastWeekTotalRequest += stat.RequestCount
+	}
+
+	// 计算增长率
+	var tokenGrowth, requestGrowth *float64
+	if lastWeekTotalToken > 0 {
+		v := math.Round(float64(thisWeekTotalToken-lastWeekTotalToken)/float64(lastWeekTotalToken)*1000) / 10
+		tokenGrowth = &v
+	}
+	if lastWeekTotalRequest > 0 {
+		v := math.Round(float64(thisWeekTotalRequest-lastWeekTotalRequest)/float64(lastWeekTotalRequest)*1000) / 10
+		requestGrowth = &v
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"this_week": gin.H{
+				"daily": thisWeekDaily,
+				"total": gin.H{
+					"token":   thisWeekTotalToken,
+					"request": thisWeekTotalRequest,
+				},
+			},
+			"last_week": gin.H{
+				"daily": lastWeekDaily,
+				"total": gin.H{
+					"token":   lastWeekTotalToken,
+					"request": lastWeekTotalRequest,
+				},
+			},
+			"growth": gin.H{
+				"token_growth":   tokenGrowth,
+				"request_growth": requestGrowth,
+			},
+		},
 	})
 	return
 }

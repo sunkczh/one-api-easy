@@ -41,6 +41,9 @@ func SetApiRouter(router *gin.Engine) {
 			selfRoute.Use(middleware.UserAuth())
 			{
 				selfRoute.GET("/dashboard", controller.GetUserDashboard)
+			selfRoute.GET("/dashboard/hourly", controller.GetHourlyDashboard)
+			selfRoute.GET("/dashboard/top-models", controller.GetTopModelsDashboard)
+			selfRoute.GET("/dashboard/weekly-comparison", controller.GetWeeklyComparisonDashboard)
 				selfRoute.GET("/self", controller.GetSelf)
 				selfRoute.PUT("/self", controller.UpdateSelf)
 				selfRoute.DELETE("/self", controller.DeleteSelf)

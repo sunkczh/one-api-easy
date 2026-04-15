@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Grid, Typography } from '@mui/material';
 import { gridSpacing } from 'store/constant';
+import DashboardMetrics from './component/DashboardMetrics';
 import StatisticalLineChartCard from './component/StatisticalLineChartCard';
 import StatisticalBarChart from './component/StatisticalBarChart';
+import HourlyTokenChart from './component/HourlyTokenChart';
+import TopModelsChart from './component/TopModelsChart';
+import WeeklyComparisonChart from './component/WeeklyComparisonChart';
 import { generateChartOptions, getLastSevenDays } from 'utils/chart';
 import { API } from 'utils/api';
 import { showError, calculateQuota, renderNumber } from 'utils/common';
@@ -50,6 +54,7 @@ const Dashboard = () => {
 
   return (
     <Grid container spacing={gridSpacing}>
+      <DashboardMetrics isLoading={isLoading} />
       <Grid item xs={12}>
         <Grid container spacing={gridSpacing}>
           <Grid item lg={4} xs={12}>
@@ -107,6 +112,22 @@ const Dashboard = () => {
               </Grid>
             </UserCard>
           </Grid>
+        </Grid>
+      </Grid>
+      <Grid item xs={12}>
+        <Grid container spacing={gridSpacing}>
+          <Grid item lg={6} xs={12}>
+            <HourlyTokenChart isLoading={isLoading} />
+          </Grid>
+          <Grid item lg={6} xs={12}>
+            <TopModelsChart isLoading={isLoading} />
+          </Grid>
+        </Grid>
+      </Grid>
+      <Grid item xs={12}>
+        <Grid container spacing={gridSpacing}>
+          <Grid item xs={12}>
+            <WeeklyComparisonChart isLoading={isLoading} />
         </Grid>
       </Grid>
     </Grid>
